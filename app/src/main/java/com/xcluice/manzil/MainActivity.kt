@@ -8,6 +8,9 @@ import android.content.pm.PackageInstaller
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -33,6 +36,8 @@ class MainActivity : Activity() {
     private lateinit var curl: CurlView
     private lateinit var counter: TextView
     private lateinit var banner: TextView
+    private lateinit var progFill: View
+    private lateinit var progRest: View
     private var pending: Updater.Info? = null
 
     private var night = false
@@ -73,8 +78,28 @@ class MainActivity : Activity() {
         root.setBackgroundColor(bg)
         root.fitsSystemWindows = true
 
-        banner = tv("Update available  \u00b7  tap to get it", 13f, fg)
+        // header
+        val head = LinearLayout(this)
+        head.orientation = LinearLayout.VERTICAL
+        head.setPadding(dp(22), dp(14), dp(22), dp(12))
+        val title = TextView(this)
+        title.text = "Manzil"
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
+        title.setTextColor(fg)
+        title.typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+        title.letterSpacing = 0.04f
+        val sub = TextView(this)
+        sub.text = "Selected verses  \u00b7  with Urdu tarjuma"
+        sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        sub.setTextColor(mut)
+        head.addView(title)
+        head.addView(sub)
+        root.addView(head, LinearLayout.LayoutParams(-1, -2))
+        root.addView(line(), LinearLayout.LayoutParams(-1, dp(1)))
+
+        banner = tv("Update available  \u00b7  tap to get it", 13f, bg)
         banner.gravity = Gravity.CENTER
+        banner.setBackgroundColor(fg)
         banner.visibility = View.GONE
         banner.setOnClickListener { showUpdateDialog() }
         root.addView(banner, LinearLayout.LayoutParams(-1, -2))
@@ -82,32 +107,87 @@ class MainActivity : Activity() {
         curl = CurlView(this)
         curl.count = total
         curl.loader = { load(it) }
+        curl.invert = prefs().getBoolean("invert", night)
         curl.onIndex = { i ->
-            counter.text = "${i + 1} / $total"
-            getSharedPreferences("manzil", MODE_PRIVATE).edit().putInt("page", i).apply()
+            counter.text = "${i + 1}  /  $total"
+            val lp = progFill.layoutParams as LinearLayout.LayoutParams
+            lp.weight = (i + 1).toFloat()
+            progFill.layoutParams = lp
+            val lp2 = progRest.layoutParams as LinearLayout.LayoutParams
+            lp2.weight = (total - i - 1).toFloat()
+            progRest.layoutParams = lp2
+            prefs().edit().putInt("page", i).apply()
             exec.execute { for (k in i - 1..i + 2) load(k) }
         }
         root.addView(curl, LinearLayout.LayoutParams(-1, 0, 1f))
 
+        // progress line
+        val prog = LinearLayout(this)
+        prog.orientation = LinearLayout.HORIZONTAL
+        progFill = View(this)
+        progFill.setBackgroundColor(fg)
+        progRest = View(this)
+        progRest.setBackgroundColor(0x33888888)
+        prog.addView(progFill, LinearLayout.LayoutParams(0, dp(2), 1f))
+        prog.addView(progRest, LinearLayout.LayoutParams(0, dp(2), 19f))
+        val pl = LinearLayout.LayoutParams(-1, dp(2))
+        pl.setMargins(dp(22), dp(6), dp(22), 0)
+        root.addView(prog, pl)
+
+        counter = TextView(this)
+        counter.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        counter.setTextColor(fg)
+        counter.gravity = Gravity.CENTER
+        counter.setPadding(0, dp(10), 0, dp(6))
+        counter.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        root.addView(counter, LinearLayout.LayoutParams(-1, -2))
+
+        // actions
         val bar = LinearLayout(this)
         bar.orientation = LinearLayout.HORIZONTAL
-        bar.gravity = Gravity.CENTER_VERTICAL
-        val go = tv("Go to", 14f, mut)
-        go.setOnClickListener { askPage() }
-        counter = tv("", 15f, fg)
-        counter.gravity = Gravity.CENTER
-        counter.setOnClickListener { askPage() }
-        val upd = tv("Updates", 14f, mut)
-        upd.gravity = Gravity.END
-        upd.setOnClickListener { checkUpdate(true) }
-        bar.addView(go, LinearLayout.LayoutParams(0, -2, 1f))
-        bar.addView(counter, LinearLayout.LayoutParams(-2, -2))
-        bar.addView(upd, LinearLayout.LayoutParams(0, -2, 1f))
+        bar.setPadding(dp(16), dp(4), dp(16), dp(14))
+        val go = pill("Go to") { askPage() }
+        val nightBtn = pill(if (curl.invert) "Day" else "Night") {}
+        nightBtn.setOnClickListener {
+            curl.invert = !curl.invert
+            nightBtn.text = if (curl.invert) "Day" else "Night"
+            prefs().edit().putBoolean("invert", curl.invert).apply()
+        }
+        val upd = pill("Updates") { checkUpdate(true) }
+        for (p in listOf(go, nightBtn, upd)) {
+            val lp = LinearLayout.LayoutParams(0, -2, 1f)
+            lp.setMargins(dp(6), 0, dp(6), 0)
+            bar.addView(p, lp)
+        }
         root.addView(bar, LinearLayout.LayoutParams(-1, -2))
 
         setContentView(root)
-        curl.jumpTo(getSharedPreferences("manzil", MODE_PRIVATE).getInt("page", 0))
+        curl.jumpTo(prefs().getInt("page", 0))
         checkUpdate(false)
+    }
+
+    private fun prefs() = getSharedPreferences("manzil", MODE_PRIVATE)
+
+    private fun line(): View {
+        val v = View(this)
+        v.setBackgroundColor(0x33888888)
+        return v
+    }
+
+    private fun pill(label: String, click: () -> Unit): TextView {
+        val t = TextView(this)
+        t.text = label
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        t.setTextColor(fg)
+        t.gravity = Gravity.CENTER
+        t.setPadding(dp(8), dp(12), dp(8), dp(12))
+        val g = GradientDrawable()
+        g.setColor(Color.TRANSPARENT)
+        g.setStroke(dp(1), 0x88888888.toInt())
+        g.cornerRadius = dp(24).toFloat()
+        t.background = g
+        t.setOnClickListener { click() }
+        return t
     }
 
     private fun load(i: Int): Bitmap? {

@@ -54,11 +54,31 @@ class CurlView(ctx: Context) : View(ctx) {
     private val backPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(150, 255, 255, 255) }
     private val shadePaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
+    private val invertFilter = ColorMatrixColorFilter(
+        ColorMatrix(floatArrayOf(
+            -1f, 0f, 0f, 0f, 255f,
+            0f, -1f, 0f, 0f, 255f,
+            0f, 0f, -1f, 0f, 255f,
+            0f, 0f, 0f, 1f, 0f
+        ))
+    )
+    private val edgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    var invert = false
+        set(v) {
+            field = v
+            val f = if (v) invertFilter else null
+            bmpPaint.colorFilter = f
+            shaderPaint.colorFilter = f
+            backPaint.color = if (v) Color.argb(150, 0, 0, 0) else Color.argb(150, 255, 255, 255)
+            invalidate()
+        }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        var cw = w.toFloat()
+        val m = resources.displayMetrics.density * 14f
+        var cw = w - 2f * m
         var ch = cw / ratio
-        if (ch > h) {
-            ch = h.toFloat()
+        if (ch > h - 2f * m) {
+            ch = h - 2f * m
             cw = ch * ratio
         }
         pw = cw
@@ -78,11 +98,26 @@ class CurlView(ctx: Context) : View(ctx) {
 
     override fun onDraw(c: Canvas) {
         if (pw <= 0f || count == 0) return
+        drawShadow(c)
         c.save()
         c.translate(ox, oy)
         c.clipRect(0f, 0f, pw, ph)
         if (mode == Mode.NONE) drawFlat(c, loader(index)) else drawCurl(c)
         c.restore()
+    }
+
+    private fun drawShadow(c: Canvas) {
+        val d = resources.displayMetrics.density
+        edgePaint.style = Paint.Style.FILL
+        for (i in 1..8) {
+            edgePaint.color = Color.argb(if (invert) 0 else 14, 0, 0, 0)
+            val g = i * 1.6f * d
+            c.drawRoundRect(ox - g, oy - g + 2f * d, ox + pw + g, oy + ph + g + 2f * d, g, g, edgePaint)
+        }
+        edgePaint.style = Paint.Style.STROKE
+        edgePaint.strokeWidth = d
+        edgePaint.color = Color.argb(70, 128, 128, 128)
+        c.drawRect(ox - d / 2, oy - d / 2, ox + pw + d / 2, oy + ph + d / 2, edgePaint)
     }
 
     private fun drawFlat(c: Canvas, b: Bitmap?) {

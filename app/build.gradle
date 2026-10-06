@@ -1,0 +1,41 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+def bn = (project.findProperty('buildNum') ?: '1').toString().toInteger()
+
+android {
+    namespace 'com.xcluice.manzil'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.xcluice.manzil'
+        minSdk 21
+        targetSdk 34
+        versionCode bn
+        versionName "1.0.${bn}"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file('release.jks')
+            storePassword 'manzil2026'
+            keyAlias 'key'
+            keyPassword 'manzil2026'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+}

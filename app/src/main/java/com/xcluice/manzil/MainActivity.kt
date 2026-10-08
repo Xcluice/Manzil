@@ -78,25 +78,6 @@ class MainActivity : Activity() {
         root.setBackgroundColor(bg)
         root.fitsSystemWindows = true
 
-        // header
-        val head = LinearLayout(this)
-        head.orientation = LinearLayout.VERTICAL
-        head.setPadding(dp(22), dp(14), dp(22), dp(12))
-        val title = TextView(this)
-        title.text = "Manzil"
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
-        title.setTextColor(fg)
-        title.typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
-        title.letterSpacing = 0.04f
-        val sub = TextView(this)
-        sub.text = "Selected verses  \u00b7  with Urdu tarjuma"
-        sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-        sub.setTextColor(mut)
-        head.addView(title)
-        head.addView(sub)
-        root.addView(head, LinearLayout.LayoutParams(-1, -2))
-        root.addView(line(), LinearLayout.LayoutParams(-1, dp(1)))
-
         banner = tv("Update available  \u00b7  tap to get it", 13f, bg)
         banner.gravity = Gravity.CENTER
         banner.setBackgroundColor(fg)

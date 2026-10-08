@@ -5,6 +5,7 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.*
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.View
@@ -12,11 +13,13 @@ import android.view.ViewConfiguration
 import android.view.animation.DecelerateInterpolator
 import kotlin.math.abs
 import kotlin.math.hypot
+import kotlin.math.min
+import kotlin.math.sin
 
 /**
- * Right-to-left page-curl book.
- * Next page: the current page peels from its LEFT edge towards the right (swipe left -> right).
- * Previous page: the earlier page curls back in from the RIGHT edge (swipe right -> left).
+ * Right-to-left book with a real rolled (cylindrical) page curl.
+ * Next page: the current page rolls up from its LEFT edge towards the right (swipe left -> right).
+ * Previous page: the earlier page rolls back in from the RIGHT edge (swipe right -> left).
  */
 class CurlView(ctx: Context) : View(ctx) {
     var count = 0
@@ -26,6 +29,15 @@ class CurlView(ctx: Context) : View(ctx) {
         private set
 
     private enum class Mode { NONE, NEXT, PREV }
+
+    private val d = ctx.resources.displayMetrics.density
+    private val radius = 15f * d
+    private val cols = 40
+    private val rows = 56
+    private val verts = FloatArray((cols + 1) * (rows + 1) * 2)
+    private val shadeCols = IntArray((cols + 1) * (rows + 1))
+    private val backCols = IntArray((cols + 1) * (rows + 1))
+    private val white1: Bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).also { it.eraseColor(Color.WHITE) }
 
     private var mode = Mode.NONE
     private var pw = 0f
@@ -51,30 +63,34 @@ class CurlView(ctx: Context) : View(ctx) {
 
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val shaderPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val backPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(150, 255, 255, 255) }
+    private val veilPaint = Paint()
     private val shadePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-
-    private val invertFilter = ColorMatrixColorFilter(
-        ColorMatrix(floatArrayOf(
-            -1f, 0f, 0f, 0f, 255f,
-            0f, -1f, 0f, 0f, 255f,
-            0f, 0f, -1f, 0f, 255f,
-            0f, 0f, 0f, 1f, 0f
-        ))
-    )
     private val edgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    private val nightFilter = ColorMatrixColorFilter(
+        ColorMatrix(
+            floatArrayOf(
+                -0.372f, -0.731f, -0.142f, 0f, 263f,
+                -0.328f, -0.643f, -0.125f, 0f, 227f,
+                -0.236f, -0.464f, -0.090f, 0f, 160f,
+                0f, 0f, 0f, 1f, 0f
+            )
+        )
+    )
+
+    /** Night reading: gold ink on dark parchment. */
     var invert = false
         set(v) {
             field = v
-            val f = if (v) invertFilter else null
-            bmpPaint.colorFilter = f
-            shaderPaint.colorFilter = f
-            backPaint.color = if (v) Color.argb(150, 0, 0, 0) else Color.argb(150, 255, 255, 255)
+            bmpPaint.colorFilter = if (v) nightFilter else null
+            shaderPaint.colorFilter = if (v) nightFilter else null
             invalidate()
         }
 
+    private val maxTx get() = 2f * (pw + radius + 6f * d)
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        val m = resources.displayMetrics.density * 14f
+        val m = 14f * d
         var cw = w - 2f * m
         var ch = cw / ratio
         if (ch > h - 2f * m) {
@@ -98,7 +114,7 @@ class CurlView(ctx: Context) : View(ctx) {
 
     override fun onDraw(c: Canvas) {
         if (pw <= 0f || count == 0) return
-        drawShadow(c)
+        drawBookEdges(c)
         c.save()
         c.translate(ox, oy)
         c.clipRect(0f, 0f, pw, ph)
@@ -106,17 +122,33 @@ class CurlView(ctx: Context) : View(ctx) {
         c.restore()
     }
 
-    private fun drawShadow(c: Canvas) {
-        val d = resources.displayMetrics.density
+    /** Soft shadow plus the stacks of pages: unread on the left, read on the right (spine side). */
+    private fun drawBookEdges(c: Canvas) {
         edgePaint.style = Paint.Style.FILL
-        for (i in 1..8) {
-            edgePaint.color = Color.argb(if (invert) 0 else 14, 0, 0, 0)
-            val g = i * 1.6f * d
-            c.drawRoundRect(ox - g, oy - g + 2f * d, ox + pw + g, oy + ph + g + 2f * d, g, g, edgePaint)
+        if (!invert) {
+            for (i in 1..8) {
+                edgePaint.color = Color.argb(13, 0, 0, 0)
+                val g = i * 1.6f * d
+                c.drawRoundRect(ox - g, oy - g + 2f * d, ox + pw + g, oy + ph + g + 2f * d, g, g, edgePaint)
+            }
         }
+        val span = maxOf(1, count - 1)
+        val left = if (index < count - 1) min(5, 1 + ((count - 1 - index) * 5) / span) else 0
+        val right = if (index > 0) min(5, 1 + (index * 5) / span) else 0
         edgePaint.style = Paint.Style.STROKE
+        edgePaint.strokeWidth = 1.1f * d
+        for (i in 1..left) {
+            edgePaint.color = if (i % 2 == 0) Color.argb(200, 120, 92, 40) else Color.argb(200, 188, 150, 78)
+            val x = ox - i * 1.7f * d
+            c.drawLine(x, oy + i * d, x, oy + ph - i * d * 0.4f, edgePaint)
+        }
+        for (i in 1..right) {
+            edgePaint.color = if (i % 2 == 0) Color.argb(200, 120, 92, 40) else Color.argb(200, 188, 150, 78)
+            val x = ox + pw + i * 1.7f * d
+            c.drawLine(x, oy + i * d, x, oy + ph - i * d * 0.4f, edgePaint)
+        }
         edgePaint.strokeWidth = d
-        edgePaint.color = Color.argb(70, 128, 128, 128)
+        edgePaint.color = Color.argb(90, 70, 50, 20)
         c.drawRect(ox - d / 2, oy - d / 2, ox + pw + d / 2, oy + ph + d / 2, edgePaint)
     }
 
@@ -153,14 +185,47 @@ class CurlView(ctx: Context) : View(ctx) {
         return p
     }
 
-    private fun shaderFor(b: Bitmap, refl: Matrix?): Paint {
+    private fun shaderFor(b: Bitmap): Paint {
         val sh = BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
         val m = Matrix()
         m.setScale(pw / b.width, ph / b.height)
-        if (refl != null) m.postConcat(refl)
         sh.setLocalMatrix(m)
         shaderPaint.shader = sh
         return shaderPaint
+    }
+
+    /** Wraps the lifted part of the page around a cylinder of [radius] lying on the fold line. */
+    private fun buildMesh() {
+        val pi = Math.PI.toFloat()
+        val backRgb = if (invert) intArrayOf(34, 24, 10) else intArrayOf(236, 208, 142)
+        var k = 0
+        var ci = 0
+        for (j in 0..rows) {
+            val py = ph * j / rows
+            for (i in 0..cols) {
+                val px = pw * i / cols
+                val sd = side(px, py)
+                if (sd >= 0f) {
+                    verts[k++] = px - sd * ux
+                    verts[k++] = py - sd * uy
+                    shadeCols[ci] = 0
+                    backCols[ci] = 0
+                } else {
+                    val s = -sd
+                    val fx = px + s * ux
+                    val fy = py + s * uy
+                    val th = s / radius
+                    val along = if (th <= pi) -radius * sin(th) else s - pi * radius
+                    verts[k++] = fx + ux * along
+                    verts[k++] = fy + uy * along
+                    val sn = if (th < pi) sin(th) else 0f
+                    shadeCols[ci] = Color.argb((120f * sn).toInt(), 0, 0, 0)
+                    val ba = 0.64f * ((th - pi / 2f) / 0.7f).coerceIn(0f, 1f)
+                    backCols[ci] = Color.argb((255f * ba).toInt(), backRgb[0], backRgb[1], backRgb[2])
+                }
+                ci++
+            }
+        }
     }
 
     private fun drawCurl(c: Canvas) {
@@ -172,51 +237,33 @@ class CurlView(ctx: Context) : View(ctx) {
         val ddy = ty - cy
         val len = hypot(ddx, ddy)
         if (len < 1.5f) { drawFlat(c, peeled); return }
-        if (tx >= 2f * pw - 0.5f) { drawFlat(c, under); return }
+        if (tx >= maxTx - 0.5f) { drawFlat(c, under); return }
         ux = ddx / len
         uy = ddy / len
         mx = tx / 2f
         my = (cy + ty) / 2f
-        val md = mx * ux + my * uy
 
-        // 1) the page underneath, with a soft shadow where the fold lifts away
+        // page underneath, shadowed by the roll
         drawFlat(c, under)
         val corner = clip(-1f)
         val flat = clip(1f)
         if (corner != null) {
             shadePaint.shader = LinearGradient(
-                mx, my, mx - ux * 42f, my - uy * 42f,
-                Color.argb(120, 0, 0, 0), Color.argb(0, 0, 0, 0), Shader.TileMode.CLAMP
+                mx, my, mx - ux * radius * 3.4f, my - uy * radius * 3.4f,
+                Color.argb(150, 0, 0, 0), Color.argb(0, 0, 0, 0), Shader.TileMode.CLAMP
             )
             c.drawPath(corner, shadePaint)
         }
 
-        // 2) the part of the page that is still lying flat
-        if (flat != null && peeled != null) c.drawPath(flat, shaderFor(peeled, null))
+        // part still lying flat
+        if (flat != null && peeled != null) c.drawPath(flat, shaderFor(peeled))
 
-        // 3) the lifted flap (mirror image of the folded part, paper back shows through)
-        if (corner != null && peeled != null) {
-            val refl = Matrix()
-            refl.setValues(
-                floatArrayOf(
-                    1f - 2f * ux * ux, -2f * ux * uy, 2f * md * ux,
-                    -2f * ux * uy, 1f - 2f * uy * uy, 2f * md * uy,
-                    0f, 0f, 1f
-                )
-            )
-            val flap = Path(corner)
-            flap.transform(refl)
-            c.drawPath(flap, shaderFor(peeled, refl))
-            c.drawPath(flap, backPaint)
-            shadePaint.shader = LinearGradient(
-                mx, my, mx + ux * 64f, my + uy * 64f,
-                intArrayOf(
-                    Color.argb(150, 0, 0, 0), Color.argb(0, 0, 0, 0),
-                    Color.argb(70, 255, 255, 255), Color.argb(0, 255, 255, 255)
-                ),
-                floatArrayOf(0f, 0.38f, 0.58f, 1f), Shader.TileMode.CLAMP
-            )
-            c.drawPath(flap, shadePaint)
+        // rolled part + underside of the paper
+        if (peeled != null) {
+            buildMesh()
+            c.drawBitmapMesh(peeled, cols, rows, verts, 0, null, 0, bmpPaint)
+            c.drawBitmapMesh(white1, cols, rows, verts, 0, backCols, 0, veilPaint)
+            c.drawBitmapMesh(white1, cols, rows, verts, 0, shadeCols, 0, veilPaint)
         }
     }
 
@@ -227,8 +274,8 @@ class CurlView(ctx: Context) : View(ctx) {
 
     private fun follow(x: Float, y: Float) {
         val dx = x - baseX
-        tx = if (mode == Mode.NEXT) (dx * 1.8f).coerceIn(2f, 2f * pw)
-        else (2f * pw + dx * 1.8f).coerceIn(2f, 2f * pw)
+        val mt = maxTx
+        tx = if (mode == Mode.NEXT) (dx * 1.8f).coerceIn(2f, mt) else (mt + dx * 1.8f).coerceIn(2f, mt)
         val cy = if (bottom) ph else 0f
         val raw = ((y - oy) - cy) * 0.3f
         val lim = tx * 0.6f
@@ -239,12 +286,13 @@ class CurlView(ctx: Context) : View(ctx) {
     private fun settle(complete: Boolean) {
         val next = mode == Mode.NEXT
         val cy = if (bottom) ph else 0f
-        val toTx = if (next) (if (complete) 2f * pw else 1f) else (if (complete) 1f else 2f * pw)
+        val mt = maxTx
+        val toTx = if (next) (if (complete) mt else 1f) else (if (complete) 1f else mt)
         val fromTx = tx
         val fromTy = ty
-        val frac = abs(toTx - fromTx) / (2f * pw)
+        val frac = abs(toTx - fromTx) / mt
         val a = ValueAnimator.ofFloat(0f, 1f)
-        a.duration = (230 + 260 * frac).toLong()
+        a.duration = (260 + 300 * frac).toLong()
         a.interpolator = DecelerateInterpolator(1.3f)
         a.addUpdateListener {
             val t = it.animatedValue as Float
@@ -261,7 +309,10 @@ class CurlView(ctx: Context) : View(ctx) {
                 }
                 mode = Mode.NONE
                 invalidate()
-                if (complete) onIndex(index)
+                if (complete) {
+                    onIndex(index)
+                    performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                }
             }
         })
         anim = a
@@ -272,7 +323,7 @@ class CurlView(ctx: Context) : View(ctx) {
         downY = oy + ph
         begin(m)
         bottom = true
-        if (m == Mode.NEXT) { tx = 2f; ty = ph } else { tx = 2f * pw; ty = ph }
+        if (m == Mode.NEXT) { tx = 2f; ty = ph } else { tx = maxTx; ty = ph }
         settle(true)
     }
 

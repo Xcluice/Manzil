@@ -103,7 +103,16 @@ class CurlView(ctx: Context) : View(ctx) {
         oy = (h - ph) / 2f
     }
 
+    val busy: Boolean get() = anim != null || mode != Mode.NONE
+
+    fun flipNext(): Boolean {
+        if (busy || index >= count - 1) return false
+        autoFlip(Mode.NEXT)
+        return true
+    }
+
     fun jumpTo(i: Int) {
+        anim?.removeAllListeners()
         anim?.cancel()
         anim = null
         mode = Mode.NONE

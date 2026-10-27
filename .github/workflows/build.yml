@@ -19,6 +19,17 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
+      - name: Fetch and compress recitation audio
+        run: |
+          mkdir -p app/src/main/assets
+          if curl -fL --retry 3 --retry-delay 3 -A "Mozilla/5.0" -o /tmp/raw.mp3 "https://manzildua.pk/wp-content/uploads/2025/12/ManzilDua.mp3"; then
+            ls -la /tmp/raw.mp3
+            command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+            ffmpeg -nostdin -y -i /tmp/raw.mp3 -vn -ac 1 -ar 24000 -b:a 48k app/src/main/assets/audio.mp3
+            ls -la app/src/main/assets/audio.mp3
+          else
+            echo "Audio download failed - the app will download it at runtime instead"
+          fi
       - name: Build release APK
         run: gradle assembleRelease --no-daemon -PbuildNum=${{ github.run_number }}
       - name: Rename APK

@@ -43,7 +43,7 @@ import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private val total = 20
-    private val audioUrl = "https://manzildua.pk/wp-content/uploads/2025/12/ManzilDua.mp3"
+    private val audioUrl = "https://archive.org/download/manzil-dua-audio/manzil-dua-audio.mp3"
     private val cache = LruCache<Int, Bitmap>(6)
     private val exec = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
@@ -381,7 +381,7 @@ class MainActivity : Activity() {
         if (openLocal()) { go(); return }
         AlertDialog.Builder(this)
             .setTitle("Download audio")
-            .setMessage("The recitation (about 50 MB) isn't inside the app yet. Download it once now?")
+            .setMessage("The recitation (about 25 MB) isn't inside the app yet. Download it once now?")
             .setPositiveButton("Download") { _, _ -> downloadAudio(go) }
             .setNegativeButton("Cancel", null)
             .show()

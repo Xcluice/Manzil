@@ -43,7 +43,11 @@ import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private val total = 20
-    private val audioUrl = "https://archive.org/download/manzil-dua-audio/manzil-dua-audio.mp3"
+    private val audioUrls = listOf(
+        "https://github.com/Xcluice/Manzil/releases/latest/download/audio.mp3",
+        "https://archive.org/download/manzil-dua-audio/manzil-dua-audio.mp3"
+    )
+    private var downloading = false
     private val cache = LruCache<Int, Bitmap>(6)
     private val exec = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
@@ -52,6 +56,8 @@ class MainActivity : Activity() {
     private lateinit var counter: TextView
     private lateinit var banner: TextView
     private lateinit var syncBar: TextView
+    private lateinit var topBar: LinearLayout
+    private lateinit var dlBtn: TextView
     private lateinit var progFill: View
     private lateinit var progRest: View
     private lateinit var playBtn: PlayButton
@@ -108,6 +114,17 @@ class MainActivity : Activity() {
         root.orientation = LinearLayout.VERTICAL
         root.setBackgroundColor(bg)
         root.fitsSystemWindows = true
+
+        topBar = LinearLayout(this)
+        topBar.orientation = LinearLayout.HORIZONTAL
+        topBar.gravity = Gravity.END
+        topBar.setPadding(dp(14), dp(8), dp(14), 0)
+        dlBtn = pill("Download audio") { if (!downloading) downloadAudio {} }
+        dlBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        dlBtn.setPadding(dp(14), dp(7), dp(14), dp(7))
+        topBar.addView(dlBtn, LinearLayout.LayoutParams(-2, -2))
+        root.addView(topBar, LinearLayout.LayoutParams(-1, -2))
+        refreshDl()
 
         syncBar = tv("", 13f, bg)
         syncBar.gravity = Gravity.CENTER
@@ -381,51 +398,69 @@ class MainActivity : Activity() {
         if (openLocal()) { go(); return }
         AlertDialog.Builder(this)
             .setTitle("Download audio")
-            .setMessage("The recitation (about 25 MB) isn't inside the app yet. Download it once now?")
+            .setMessage("The recitation isn't on this phone yet (about 7 MB). Download it now?")
             .setPositiveButton("Download") { _, _ -> downloadAudio(go) }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
+    private fun audioReady() = File(filesDir, "audio.mp3").let { it.exists() && it.length() > 500000 }
+
+    private fun refreshDl() {
+        topBar.visibility = if (audioReady()) View.GONE else View.VISIBLE
+    }
+
     private fun downloadAudio(go: () -> Unit) {
-        val dlg = AlertDialog.Builder(this).setTitle("Downloading audio").setMessage("0%").setCancelable(false).create()
-        dlg.show()
+        if (downloading) return
+        downloading = true
+        dlBtn.text = "Downloading 0%"
         Thread {
-            try {
-                val part = File(filesDir, "audio.part")
-                val c = URL(audioUrl).openConnection() as HttpURLConnection
-                c.connectTimeout = 15000
-                c.readTimeout = 20000
-                c.setRequestProperty("User-Agent", "Mozilla/5.0")
-                val len = c.contentLength.toLong()
-                c.inputStream.use { ins ->
-                    part.outputStream().use { out ->
-                        val buf = ByteArray(32768)
-                        var done = 0L
-                        var last = -1
-                        while (true) {
-                            val n = ins.read(buf)
-                            if (n < 0) break
-                            out.write(buf, 0, n)
-                            done += n
-                            if (len > 0) {
-                                val pct = (done * 100 / len).toInt()
-                                if (pct != last) {
-                                    last = pct
-                                    runOnUiThread { dlg.setMessage("$pct%") }
+            val part = File(filesDir, "audio.part")
+            var ok = false
+            for (u in audioUrls) {
+                try {
+                    val c = URL(u).openConnection() as HttpURLConnection
+                    c.connectTimeout = 15000
+                    c.readTimeout = 20000
+                    c.setRequestProperty("User-Agent", "Manzil")
+                    if (c.responseCode != 200) { c.disconnect(); continue }
+                    val len = c.contentLength.toLong()
+                    c.inputStream.use { ins ->
+                        part.outputStream().use { out ->
+                            val buf = ByteArray(32768)
+                            var done = 0L
+                            var last = -1
+                            while (true) {
+                                val n = ins.read(buf)
+                                if (n < 0) break
+                                out.write(buf, 0, n)
+                                done += n
+                                if (len > 0) {
+                                    val pct = (done * 100 / len).toInt()
+                                    if (pct != last) {
+                                        last = pct
+                                        runOnUiThread { dlBtn.text = "Downloading $pct%" }
+                                    }
                                 }
                             }
                         }
                     }
+                    if (part.length() > 500000) {
+                        part.renameTo(File(filesDir, "audio.mp3"))
+                        ok = true
+                        break
+                    }
+                } catch (e: Exception) {
                 }
-                part.renameTo(File(filesDir, "audio.mp3"))
-                runOnUiThread {
-                    dlg.dismiss()
-                    if (openLocal()) go() else toast("Couldn't open the audio")
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    dlg.dismiss()
+            }
+            runOnUiThread {
+                downloading = false
+                if (ok) {
+                    refreshDl()
+                    toast("Audio ready")
+                    if (openLocal()) go()
+                } else {
+                    dlBtn.text = "Download audio"
                     toast("Download failed. Check your internet.")
                 }
             }
